@@ -1,8 +1,7 @@
-module Trass.Config (
-  module Trass.Config.Command,
-  module Trass.Config.Submission,
-  module Trass.Config.User,
-  module Trass.Config.Util,
+module Trass.VM.Config (
+  module Trass.VM.Config.Command,
+  module Trass.VM.Config.Submission,
+  module Trass.VM.Config.User,
   TrassConfig(..),
 ) where
 
@@ -12,9 +11,9 @@ import Data.Aeson
 import Data.Monoid
 import Data.Text (Text)
 
-import Trass.Config.Command
-import Trass.Config.Submission
-import Trass.Config.User
+import Trass.VM.Config.Command
+import Trass.VM.Config.Submission
+import Trass.VM.Config.User
 import Trass.Config.Util
 
 data TrassConfig = TrassConfig

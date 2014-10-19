@@ -1,6 +1,6 @@
-trass-lxc
-=========
+trass-vm
+========
 
-[![Build Status](https://travis-ci.org/fizruk/trass-lxc.svg?branch=master)](https://travis-ci.org/fizruk/trass-lxc)
+[![Build Status](https://travis-ci.org/fizruk/trass-vm.svg?branch=master)](https://travis-ci.org/fizruk/trass-vm)
 
-LXC container management library for TRASS.
+Virtual machine (container) management for TRASS.

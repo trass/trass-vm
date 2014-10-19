@@ -1,4 +1,4 @@
-module Trass.Config.User where
+module Trass.VM.Config.User where
 
 import Control.Applicative
 
@@ -6,7 +6,7 @@ import Data.Aeson
 import Data.Monoid
 import Data.Text (Text)
 
-import Trass.Config.Command
+import Trass.VM.Config.Command
 import Trass.Config.Util
 
 data TrassUserConfig = TrassUserConfig

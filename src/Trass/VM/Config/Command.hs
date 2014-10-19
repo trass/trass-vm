@@ -1,5 +1,5 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-module Trass.Config.Command where
+module Trass.VM.Config.Command where
 
 import Control.Applicative
 
