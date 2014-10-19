@@ -2,8 +2,8 @@ name:                trass-vm
 version:             0.1
 synopsis:            Virtual machine (container) management for TRASS.
 -- description:
-homepage:            https://github.com/fizruk/trass-vm
-bug-reports:         https://github.com/fizruk/trass-vm/issues
+homepage:            https://github.com/trass/trass-vm
+bug-reports:         https://github.com/trass/trass-vm/issues
 license:             BSD3
 license-file:        LICENSE
 author:              Nickolay Kudasov
@@ -36,5 +36,5 @@ library
 
 source-repository head
   type: git
-  location: https://github.com/fizruk/trass-vm.git
+  location: https://github.com/trass/trass-vm.git
   branch: master
