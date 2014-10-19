@@ -31,7 +31,10 @@ library
                     , transformers  >=0.2
                     , text
                     , aeson         >=0.2
+                    , process       >=1.2
                     , filepath
+                    , unix          >=2.0
+                    , Unixutils
                     , trass-config
 
 source-repository head
