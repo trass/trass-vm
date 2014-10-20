@@ -1,4 +1,8 @@
 language: haskell
 ghc: 7.8
+before_install:
+  # install trass-config from sources
+  - git clone https://github.com/trass/trass-config.git
+  - cabal install --force-reinstalls trass-config/
 install:
   - cabal install --force-reinstalls --only-dependencies --enable-tests
