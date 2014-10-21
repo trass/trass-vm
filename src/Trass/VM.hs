@@ -35,6 +35,38 @@ class MonadIO m => MonadVM m where
   sendDirectory :: FilePath -> FilePath -> m (Maybe ExitCode)
   execute       :: [String] -> Maybe String -> Maybe FilePath -> Command -> m (Maybe ExitCode)
 
+data VMStatus
+  = VMCreating
+  | VMStarting
+  | VMPreparingUser
+  | VMPreparing
+  | VMStopping
+  | VMFailed
+  | VMReady
+  deriving (Read, Show)
+
+data CloneStatus
+  = CloneCloning
+  | CloneStarting
+  | CloneExecuting
+  | CloneStopping
+  | CloneDestroying
+  | CloneFailed
+  | CloneFinished
+  deriving (Show, Read)
+
+data SubmissionStatus
+  = SubmissionCopying
+  | SubmissionRunningBeforeInstall
+  | SubmissionRunningInstall
+  | SubmissionRunningBeforeScript
+  | SubmissionRunningScript
+  | SubmissionRunningAfterFailure
+  | SubmissionRunningAfterSuccess
+  | SubmissionRunningAfterScript
+  | SubmissionFinished
+  deriving (Show, Read)
+
 attachMany :: MonadVM m => [String] -> Maybe String -> Maybe FilePath -> Commands -> m (Maybe ExitCode)
 attachMany _ _ _ (Commands []) = return (Just ExitSuccess)
 attachMany env user wd (Commands (cmd:cmds)) = do
@@ -43,17 +75,25 @@ attachMany env user wd (Commands (cmd:cmds)) = do
     Just ExitSuccess -> attachMany env user Nothing (Commands cmds)
     _ -> return mc
 
-prepareContainer :: MonadVM m => FilePath -> TrassConfig -> IO (Maybe (VM m))
-prepareContainer path cfg@TrassConfig{..} = do
+prepareContainer :: MonadVM m => FilePath -> TrassConfig -> (VMStatus -> IO ()) -> IO (Maybe (VM m))
+prepareContainer path cfg@TrassConfig{..} handler = do
+  handler VMCreating
   mvm <- liftIO $ create path cfg
   case mvm of
-    Nothing -> return Nothing
+    Nothing -> do
+      handler VMFailed
+      return Nothing
     Just vm -> do
+      handler VMStarting
       withVM vm $ do
         start
+        liftIO $ handler VMPreparingUser
         attachMany env Nothing Nothing (trassUserConfigPrepare trassConfigUser)
+        liftIO $ handler VMPreparing
         attachMany env user (Just homeDir) trassConfigPrepare
+        liftIO $ handler VMStopping
         stop
+      handler VMReady
       return (Just vm)
   where
     user    = Text.unpack <$> trassUserConfigUsername trassConfigUser
@@ -61,48 +101,67 @@ prepareContainer path cfg@TrassConfig{..} = do
     homeDir = fromMaybe "" $ trassUserConfigHome trassConfigUser
     -- env = getCommands (trassConfigEnvironment cfg) <> [TextValue $ "USER=" <> fromMaybe "root" (trassUserConfigUsername trassConfigUser)]
 
-withTempClone :: MonadVM m => VM m -> m a -> IO (Maybe a)
-withTempClone baseVM todo = do
+withTempClone :: MonadVM m => VM m -> (CloneStatus -> IO ()) -> m a -> IO (Maybe a)
+withTempClone baseVM handler todo = do
+  handler CloneCloning
   withTemporaryDirectory "trass_vm_clone." $ \tempdir -> do
     setFileMode tempdir accessModes
     mvm <- liftIO $ clone (tempdir </> "vm") baseVM
     case mvm of
-      Nothing -> return Nothing
+      Nothing -> do
+        handler CloneFailed
+        return Nothing
       Just vm -> withVM vm $ do
+        liftIO $ handler CloneStarting
         start
+        liftIO $ handler CloneExecuting
         x <- todo
+        liftIO $ handler CloneStopping
         stop
+        liftIO $ handler CloneDestroying
         destroy
+        liftIO $ handler CloneFinished
         return (Just x)
 
-submit :: MonadVM m => VM m -> FilePath -> [FilePath] -> TrassConfig -> IO (Maybe ExitCode)
-submit baseVM submitFile taskDirs TrassConfig{..} = do
-  mmcode <- withTempClone baseVM $ do
+submit :: MonadVM m => VM m -> FilePath -> [FilePath] -> TrassConfig -> (Either CloneStatus SubmissionStatus -> IO ()) -> IO (Maybe ExitCode)
+submit baseVM submitFile taskDirs TrassConfig{..} handler = do
+  mmcode <- withTempClone baseVM (handler . Left) $ do
+    liftIO $ handler $ Right SubmissionCopying
     -- merge and copy multiple task directories
     forM_ taskDirs $ \taskDir -> sendDirectory taskDir $ taskDir'
     -- copy submitted file
     sendFile submitFile $ taskDir' </> submitFile'
 
+    -- FIXME
+    liftIO $ handler $ Right SubmissionRunningBeforeInstall
     -- run commands
-    mcode <- attachMany env user (Just taskDir') . mconcat . map (fromMaybe mempty) $
-                [ trassSubmissionConfigBeforeInstall
-                , trassSubmissionConfigInstall
-                , trassSubmissionConfigBeforeScript
-                , trassSubmissionConfigScript ]
+    mcode <- attachMany' (Just taskDir') $
+                [ (SubmissionRunningBeforeInstall,  trassSubmissionConfigBeforeInstall)
+                , (SubmissionRunningInstall,        trassSubmissionConfigInstall)
+                , (SubmissionRunningBeforeScript,   trassSubmissionConfigBeforeScript)
+                , (SubmissionRunningScript,         trassSubmissionConfigScript) ]
 
     -- run after* commands
     case mcode of
       Just code -> do
-        attachMany env user Nothing . fromMaybe mempty $
+        attachMany' Nothing $
           case code of
-            ExitSuccess -> trassSubmissionConfigAfterSuccess
-            _           -> trassSubmissionConfigAfterFailure
-        attachMany env user Nothing $ fromMaybe mempty trassSubmissionConfigAfterScript
+            ExitSuccess -> [ (SubmissionRunningAfterSuccess, trassSubmissionConfigAfterSuccess) ]
+            _           -> [ (SubmissionRunningAfterFailure, trassSubmissionConfigAfterFailure) ]
+        attachMany' Nothing $ [ (SubmissionRunningAfterScript, trassSubmissionConfigAfterScript) ]
       _ -> return Nothing
 
     return mcode
   return $ join mmcode
   where
+    attachMany' dir []            = attachMany env user dir mempty
+    attachMany' dir ((s, cs):css) = do
+      liftIO $ handler $ Right s
+      mcode <- attachMany env user dir (fromMaybe mempty cs)
+      case mcode of
+        Just ExitSuccess -> attachMany' dir css
+        _ -> return mcode
+
     user        = Text.unpack <$> trassUserConfigUsername trassConfigUser
     env         = map (Text.unpack . getTextValue) $ getCommands trassConfigEnvironment
     homeDir     = fromMaybe "" $ trassUserConfigHome trassConfigUser
@@ -113,7 +172,7 @@ submit baseVM submitFile taskDirs TrassConfig{..} = do
 
 tryVM :: MonadVM m => VM m -> TrassConfig -> IO (Maybe ExitCode)
 tryVM baseVM TrassConfig{..} = join <$> do
-  withTempClone baseVM $ do
+  withTempClone baseVM print $ do
     execute env user Nothing (TextValue "sh")
   where
     user = Text.unpack <$> trassUserConfigUsername trassConfigUser
